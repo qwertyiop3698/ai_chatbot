@@ -94,7 +94,8 @@ if question:
 # 2. GITHUB에 프로젝트를 업로드
 # 3. new app을 통해 앱을 만들어 GITHUB저장소와 연결
 # 4. 자동 배포됨.
-
+# from google import genai 모듈 에러
+# streamlit cloud에서 자동으로 설치하도록. requirements.txt 문서에 설치할 모듈 업로드
 
 
 
