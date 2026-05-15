@@ -359,6 +359,15 @@ def inject_selectbox_styles():
             color: #4f8cff;
             transform: translateY(1px);
         }
+
+        div[data-baseweb="select"] input {
+            caret-color: transparent;
+            cursor: pointer;
+        }
+
+        div[data-baseweb="select"] input::selection {
+            background: transparent;
+        }
         </style>
         """,
         unsafe_allow_html=True,
