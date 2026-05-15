@@ -9,6 +9,7 @@ from google.genai import types
 
 
 DEFAULT_MODEL_NAME = "gemini-3-flash-preview"
+WELCOME_MESSAGE = "안녕하세요. 질문과 프롬프트 조건을 바꿔가며 AI 답변 차이를 실험해보세요."
 
 ROLE_PROMPTS = {
     "기본 도우미": "너는 사용자의 질문에 균형 있고 명확하게 답하는 AI 도우미야.",
@@ -66,7 +67,7 @@ def reset_messages():
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "안녕하세요. 질문과 프롬프트 조건을 바꿔가며 AI 답변 차이를 실험해보세요.",
+            "content": WELCOME_MESSAGE,
             "feedback": None,
         }
     ]
@@ -139,6 +140,14 @@ def build_mode_message(role, tone, answer_length, output_format):
         return f"🤖 {' '.join(mode_words)} 모드로 {length_label} 답변합니다."
 
     return f"🤖 {' '.join(mode_words)} 모드로 {length_label}로 답변합니다."
+
+
+def clear_welcome_message():
+    st.session_state.messages = [
+        message
+        for message in st.session_state.messages
+        if message.get("content") != WELCOME_MESSAGE
+    ]
 
 
 def resolve_display_value(selection, custom_value):
@@ -366,10 +375,11 @@ def render_prompt_settings():
             role = st.selectbox(
                 "역할",
                 ["직접 입력"] + list(ROLE_PROMPTS.keys()),
+                help="직접 입력을 선택하면 아래 입력칸에 원하는 역할을 쓸 수 있습니다.",
             )
             custom_role = st.text_input(
                 "역할 직접 입력",
-                placeholder="비워두면 LLM 기본값으로 답변합니다",
+                placeholder="비워두면 역할을 따로 지정하지 않습니다.",
                 disabled=role != "직접 입력",
                 label_visibility="collapsed",
             )
@@ -379,10 +389,14 @@ def render_prompt_settings():
                 horizontal=True,
             )
         with col2:
-            tone = st.selectbox("말투", ["직접 입력"] + list(TONE_PROMPTS.keys()))
+            tone = st.selectbox(
+                "말투",
+                ["직접 입력"] + list(TONE_PROMPTS.keys()),
+                help="직접 입력을 선택하면 아래 입력칸에 원하는 말투를 쓸 수 있습니다.",
+            )
             custom_tone = st.text_input(
                 "말투 직접 입력",
-                placeholder="비워두면 LLM 기본값으로 답변합니다",
+                placeholder="비워두면 말투를 따로 지정하지 않습니다.",
                 disabled=tone != "직접 입력",
                 label_visibility="collapsed",
             )
@@ -390,10 +404,11 @@ def render_prompt_settings():
             output_format = st.selectbox(
                 "형식",
                 ["직접 입력"] + list(FORMAT_PROMPTS.keys()),
+                help="직접 입력을 선택하면 아래 입력칸에 원하는 형식을 쓸 수 있습니다.",
             )
             custom_format = st.text_input(
                 "형식 직접 입력",
-                placeholder="비워두면 LLM 기본값으로 답변합니다",
+                placeholder="비워두면 형식을 따로 지정하지 않습니다.",
                 disabled=output_format != "직접 입력",
                 label_visibility="collapsed",
             )
@@ -455,6 +470,7 @@ def main():
 
     if is_saved:
         with st.spinner("AI 설정중.."):
+            clear_welcome_message()
             st.session_state.active_system_prompt = system_prompt
             st.session_state.active_temperature = temperature
             st.session_state.active_mode_message = mode_message
