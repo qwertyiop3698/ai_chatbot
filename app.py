@@ -15,14 +15,15 @@ ROLE_PROMPTS = {
     "초보자 튜터": "너는 초보자를 가르치는 친절한 튜터야. 어려운 개념은 쉬운 말과 예시로 설명해.",
     "비판적 리뷰어": "너는 사용자의 글, 아이디어, 코드, 기획을 비판적으로 검토하는 리뷰어야. 장점보다 개선점과 보완점을 중심으로 제안해.",
     "아이디어 브레인스토머": "너는 창의적인 아이디어를 제안하는 브레인스토밍 파트너야. 다양한 관점과 대안을 제시해.",
+    "정리 전문가": "너는 사용자의 내용을 보기 좋게 분류하고 핵심을 정돈하는 정리 전문가야.",
     "요약 전문가": "너는 긴 내용을 핵심만 간결하게 정리하는 요약 전문가야. 불필요한 설명은 줄이고 핵심 위주로 답해.",
 }
 
 LENGTH_PROMPTS = {
-    "100자 이하": "답변은 100자 이하로 작성해.",
-    "300자 이하": "답변은 300자 이하로 작성해.",
-    "500자 이하": "답변은 500자 이하로 작성해.",
-    "1000자 이하": "답변은 1000자 이하로 작성해.",
+    "100자 이내": "답변은 100자 이내로 작성해.",
+    "300자 이내": "답변은 300자 이내로 작성해.",
+    "500자 이내": "답변은 500자 이내로 작성해.",
+    "1000자 이내": "답변은 1000자 이내로 작성해.",
     "제한 없음": "답변 길이에 엄격한 제한을 두지 마.",
 }
 
@@ -78,6 +79,18 @@ def init_session_state():
     if "selected_sample_question" not in st.session_state:
         st.session_state.selected_sample_question = ""
 
+    if "ai_configured" not in st.session_state:
+        st.session_state.ai_configured = False
+
+    if "active_system_prompt" not in st.session_state:
+        st.session_state.active_system_prompt = ""
+
+    if "active_temperature" not in st.session_state:
+        st.session_state.active_temperature = 0.5
+
+    if "active_mode_message" not in st.session_state:
+        st.session_state.active_mode_message = ""
+
 
 def resolve_prompt(selection, prompt_map, custom_value, fallback_label):
     if selection != "직접 입력":
@@ -103,6 +116,25 @@ def build_system_prompt(role_prompt, tone_prompt, answer_length, format_prompt, 
 
     prompt_parts.append("항상 한국어로 답변해.")
     return "\n".join(prompt_parts)
+
+
+def build_mode_message(role, tone, answer_length, output_format):
+    role_label = role or "직접 입력 전문가"
+    tone_label = tone or "사용자 지정 말투"
+    format_label = output_format if output_format != "일반 문장" else ""
+    length_label = answer_length if answer_length != "제한 없음" else "길이 제한 없이"
+
+    mode_words = [tone_label]
+    if tone_label:
+        mode_words.append("말하는")
+    if format_label:
+        mode_words.append(format_label)
+    mode_words.append(role_label)
+
+    if answer_length == "제한 없음":
+        return f"🤖 {' '.join(mode_words)} 모드로 {length_label} 답변합니다."
+
+    return f"🤖 {' '.join(mode_words)} 모드로 {length_label}로 답변합니다."
 
 
 def build_contents(user_input):
@@ -137,7 +169,8 @@ def get_gemini_response(api_key, model_name, system_prompt, user_input, temperat
 
 def render_chat_history():
     for index, message in enumerate(st.session_state.messages):
-        with st.chat_message(message["role"]):
+        avatar = "🤖" if message["role"] == "assistant" else None
+        with st.chat_message(message["role"], avatar=avatar):
             st.write(message["content"])
 
             if message["role"] == "assistant":
@@ -233,14 +266,18 @@ def render_prompt_settings():
     with st.expander("프롬프트 설정", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
-            role = st.selectbox("역할", list(ROLE_PROMPTS.keys()) + ["직접 입력"])
+            role = st.selectbox(
+                "역할",
+                list(ROLE_PROMPTS.keys()) + ["직접 입력"],
+                index=list(ROLE_PROMPTS.keys()).index("정리 전문가"),
+            )
             custom_role = st.text_input(
                 "역할 직접 입력",
                 placeholder="직접 입력",
                 disabled=role != "직접 입력",
                 label_visibility="collapsed",
             )
-            answer_length = st.radio("길이", list(LENGTH_PROMPTS.keys()), index=1, horizontal=True)
+            answer_length = st.radio("길이", list(LENGTH_PROMPTS.keys()), index=0, horizontal=True)
         with col2:
             tone = st.selectbox("말투", list(TONE_PROMPTS.keys()) + ["직접 입력"])
             custom_tone = st.text_input(
@@ -250,7 +287,11 @@ def render_prompt_settings():
                 label_visibility="collapsed",
             )
 
-            output_format = st.selectbox("형식", list(FORMAT_PROMPTS.keys()) + ["직접 입력"])
+            output_format = st.selectbox(
+                "형식",
+                list(FORMAT_PROMPTS.keys()) + ["직접 입력"],
+                index=list(FORMAT_PROMPTS.keys()).index("표"),
+            )
             custom_format = st.text_input(
                 "형식 직접 입력",
                 placeholder="직접 입력",
@@ -273,6 +314,19 @@ def render_prompt_settings():
             height=90,
         ).strip()
 
+        role_display = custom_role.strip() if role == "직접 입력" and custom_role.strip() else role
+        tone_display = custom_tone.strip() if tone == "직접 입력" and custom_tone.strip() else tone
+        format_display = (
+            custom_format.strip()
+            if output_format == "직접 입력" and custom_format.strip()
+            else output_format
+        )
+
+        setting_preview = build_mode_message(role_display, tone_display, answer_length, format_display)
+        st.info(setting_preview)
+
+        is_saved = st.button("설정 완료", type="primary", use_container_width=True)
+
     role_prompt = resolve_prompt(role, ROLE_PROMPTS, custom_role, "기본 도우미")
     tone_prompt = resolve_prompt(tone, TONE_PROMPTS, custom_tone, "친절하게")
     format_prompt = resolve_prompt(output_format, FORMAT_PROMPTS, custom_format, "일반 문장")
@@ -284,7 +338,15 @@ def render_prompt_settings():
         format_prompt=format_prompt,
         extra_instruction=extra_instruction,
     )
-    return system_prompt, temperature
+    role_display = custom_role.strip() if role == "직접 입력" and custom_role.strip() else role
+    tone_display = custom_tone.strip() if tone == "직접 입력" and custom_tone.strip() else tone
+    format_display = (
+        custom_format.strip()
+        if output_format == "직접 입력" and custom_format.strip()
+        else output_format
+    )
+    mode_message = build_mode_message(role_display, tone_display, answer_length, format_display)
+    return system_prompt, temperature, mode_message, is_saved
 
 
 def main():
@@ -298,7 +360,18 @@ def main():
     st.title("DIY 프롬프트 실험실")
     st.write("같은 질문이라도 역할, 답변 길이, 출력 형식, 답변 온도 값에 따라 답변이 어떻게 달라지는지 실험해보세요.")
 
-    system_prompt, temperature = render_prompt_settings()
+    system_prompt, temperature, mode_message, is_saved = render_prompt_settings()
+
+    if is_saved:
+        with st.spinner("AI 설정중.."):
+            st.session_state.active_system_prompt = system_prompt
+            st.session_state.active_temperature = temperature
+            st.session_state.active_mode_message = mode_message
+            st.session_state.ai_configured = True
+            st.session_state.messages.append(
+                {"role": "assistant", "content": mode_message, "feedback": None}
+            )
+        st.rerun()
 
     if not api_key:
         st.error("GEMINI_API_KEY가 설정되어 있지 않습니다. 프로젝트의 .env 파일에 GEMINI_API_KEY를 추가해주세요.")
@@ -307,16 +380,26 @@ def main():
     sample_question = render_sample_question_picker()
     render_chat_history()
 
+    if not st.session_state.ai_configured:
+        st.warning("프롬프트 설정을 고른 뒤 설정 완료 버튼을 눌러주세요.")
+        st.stop()
+
     user_input = render_question_input(sample_question)
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.write(user_input)
 
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("답변을 생성하는 중입니다..."):
                 try:
-                    answer = get_gemini_response(api_key, model_name, system_prompt, user_input, temperature)
+                    answer = get_gemini_response(
+                        api_key,
+                        model_name,
+                        st.session_state.active_system_prompt,
+                        user_input,
+                        st.session_state.active_temperature,
+                    )
                 except Exception as error:
                     st.error(f"API 호출 중 오류가 발생했습니다: {error}")
                     return
