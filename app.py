@@ -92,7 +92,7 @@ def init_session_state():
         st.session_state.active_mode_message = ""
 
 
-def resolve_prompt(selection, prompt_map, custom_value, fallback_label):
+def resolve_prompt(selection, prompt_map, custom_value):
     if selection != "직접 입력":
         return prompt_map[selection]
 
@@ -100,33 +100,37 @@ def resolve_prompt(selection, prompt_map, custom_value, fallback_label):
     if custom_value:
         return custom_value
 
-    return prompt_map[fallback_label]
+    return ""
 
 
 def build_system_prompt(role_prompt, tone_prompt, answer_length, format_prompt, extra_instruction):
-    prompt_parts = [
-        role_prompt,
-        tone_prompt,
-        LENGTH_PROMPTS[answer_length],
-        format_prompt,
-    ]
+    prompt_parts = []
+
+    for prompt in (role_prompt, tone_prompt, format_prompt):
+        if prompt:
+            prompt_parts.append(prompt)
+
+    if answer_length != "제한 없음":
+        prompt_parts.append(LENGTH_PROMPTS[answer_length])
 
     if extra_instruction:
         prompt_parts.append(f"추가 지시사항: {extra_instruction}")
 
-    prompt_parts.append("항상 한국어로 답변해.")
     return "\n".join(prompt_parts)
 
 
 def build_mode_message(role, tone, answer_length, output_format):
-    role_label = role or "직접 입력 전문가"
-    tone_label = tone or "사용자 지정 말투"
-    format_label = output_format if output_format != "일반 문장" else ""
+    if not any([role, tone, output_format]) and answer_length == "제한 없음":
+        return "🤖 기본 LLM 모드로 답변합니다."
+
+    role_label = role or "AI"
+    tone_label = tone or ""
+    format_label = output_format or ""
     length_label = answer_length if answer_length != "제한 없음" else "길이 제한 없이"
 
-    mode_words = [tone_label]
+    mode_words = []
     if tone_label:
-        mode_words.append("말하는")
+        mode_words.extend([tone_label, "말하는"])
     if format_label:
         mode_words.append(format_label)
     mode_words.append(role_label)
@@ -135,6 +139,13 @@ def build_mode_message(role, tone, answer_length, output_format):
         return f"🤖 {' '.join(mode_words)} 모드로 {length_label} 답변합니다."
 
     return f"🤖 {' '.join(mode_words)} 모드로 {length_label}로 답변합니다."
+
+
+def resolve_display_value(selection, custom_value):
+    if selection != "직접 입력":
+        return selection
+
+    return custom_value.strip()
 
 
 def build_contents(user_input):
@@ -154,15 +165,21 @@ def build_contents(user_input):
 
 def get_gemini_response(api_key, model_name, system_prompt, user_input, temperature):
     client = genai.Client(api_key=api_key)
+    config_options = {
+        "max_output_tokens": 2048,
+        "response_mime_type": "text/plain",
+    }
+
+    if temperature is not None:
+        config_options["temperature"] = temperature
+
+    if system_prompt:
+        config_options["system_instruction"] = system_prompt
+
     response = client.models.generate_content(
         model=model_name,
         contents=build_contents(user_input),
-        config=types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=2048,
-            response_mime_type="text/plain",
-            system_instruction=system_prompt,
-        ),
+        config=types.GenerateContentConfig(**config_options),
     )
     return response.text or ""
 
@@ -262,39 +279,121 @@ def patch_chat_input_shortcuts():
     )
 
 
+def patch_selectbox_interactions():
+    components.html(
+        """
+        <script>
+        const marker = "data-toggle-close-selectbox";
+
+        function closeOpenSelectbox() {
+          const active = window.parent.document.activeElement;
+          if (active) {
+            active.dispatchEvent(new KeyboardEvent("keydown", {
+              key: "Escape",
+              code: "Escape",
+              keyCode: 27,
+              which: 27,
+              bubbles: true
+            }));
+            active.blur();
+          }
+        }
+
+        function patchSelectboxes() {
+          const doc = window.parent.document;
+          const comboboxes = doc.querySelectorAll('[role="combobox"]');
+
+          comboboxes.forEach((combobox) => {
+            if (combobox.getAttribute(marker) === "1") {
+              return;
+            }
+
+            combobox.setAttribute(marker, "1");
+            combobox.addEventListener("mousedown", (event) => {
+              if (combobox.getAttribute("aria-expanded") === "true") {
+                event.preventDefault();
+                event.stopPropagation();
+                closeOpenSelectbox();
+              }
+            }, true);
+          });
+        }
+
+        patchSelectboxes();
+        window.setInterval(patchSelectboxes, 500);
+        </script>
+        """,
+        height=0,
+    )
+
+
+def inject_selectbox_styles():
+    st.markdown(
+        """
+        <style>
+        div[data-baseweb="select"] > div {
+            cursor: pointer;
+            transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+        }
+
+        div[data-baseweb="select"] > div:hover {
+            border-color: #4f8cff;
+            box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.18);
+            background-color: rgba(79, 140, 255, 0.04);
+        }
+
+        div[data-baseweb="select"] svg {
+            transition: transform 120ms ease, color 120ms ease;
+        }
+
+        div[data-baseweb="select"] > div:hover svg {
+            color: #4f8cff;
+            transform: translateY(1px);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_prompt_settings():
+    inject_selectbox_styles()
+    patch_selectbox_interactions()
+
     with st.expander("프롬프트 설정", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             role = st.selectbox(
                 "역할",
-                list(ROLE_PROMPTS.keys()) + ["직접 입력"],
-                index=list(ROLE_PROMPTS.keys()).index("정리 전문가"),
+                ["직접 입력"] + list(ROLE_PROMPTS.keys()),
             )
             custom_role = st.text_input(
                 "역할 직접 입력",
-                placeholder="직접 입력",
+                placeholder="비워두면 LLM 기본값으로 답변합니다",
                 disabled=role != "직접 입력",
                 label_visibility="collapsed",
             )
-            answer_length = st.radio("길이", list(LENGTH_PROMPTS.keys()), index=0, horizontal=True)
+            answer_length = st.radio(
+                "길이",
+                ["제한 없음"] + [label for label in LENGTH_PROMPTS if label != "제한 없음"],
+                horizontal=True,
+            )
         with col2:
-            tone = st.selectbox("말투", list(TONE_PROMPTS.keys()) + ["직접 입력"])
+            tone = st.selectbox("말투", ["직접 입력"] + list(TONE_PROMPTS.keys()))
             custom_tone = st.text_input(
                 "말투 직접 입력",
-                placeholder="직접 입력",
+                placeholder="비워두면 LLM 기본값으로 답변합니다",
                 disabled=tone != "직접 입력",
                 label_visibility="collapsed",
             )
 
             output_format = st.selectbox(
                 "형식",
-                list(FORMAT_PROMPTS.keys()) + ["직접 입력"],
-                index=list(FORMAT_PROMPTS.keys()).index("표"),
+                ["직접 입력"] + list(FORMAT_PROMPTS.keys()),
             )
             custom_format = st.text_input(
                 "형식 직접 입력",
-                placeholder="직접 입력",
+                placeholder="비워두면 LLM 기본값으로 답변합니다",
                 disabled=output_format != "직접 입력",
                 label_visibility="collapsed",
             )
@@ -314,22 +413,18 @@ def render_prompt_settings():
             height=90,
         ).strip()
 
-        role_display = custom_role.strip() if role == "직접 입력" and custom_role.strip() else role
-        tone_display = custom_tone.strip() if tone == "직접 입력" and custom_tone.strip() else tone
-        format_display = (
-            custom_format.strip()
-            if output_format == "직접 입력" and custom_format.strip()
-            else output_format
-        )
+        role_display = resolve_display_value(role, custom_role)
+        tone_display = resolve_display_value(tone, custom_tone)
+        format_display = resolve_display_value(output_format, custom_format)
 
         setting_preview = build_mode_message(role_display, tone_display, answer_length, format_display)
         st.info(setting_preview)
 
         is_saved = st.button("설정 완료", type="primary", use_container_width=True)
 
-    role_prompt = resolve_prompt(role, ROLE_PROMPTS, custom_role, "기본 도우미")
-    tone_prompt = resolve_prompt(tone, TONE_PROMPTS, custom_tone, "친절하게")
-    format_prompt = resolve_prompt(output_format, FORMAT_PROMPTS, custom_format, "일반 문장")
+    role_prompt = resolve_prompt(role, ROLE_PROMPTS, custom_role)
+    tone_prompt = resolve_prompt(tone, TONE_PROMPTS, custom_tone)
+    format_prompt = resolve_prompt(output_format, FORMAT_PROMPTS, custom_format)
 
     system_prompt = build_system_prompt(
         role_prompt=role_prompt,
@@ -338,13 +433,9 @@ def render_prompt_settings():
         format_prompt=format_prompt,
         extra_instruction=extra_instruction,
     )
-    role_display = custom_role.strip() if role == "직접 입력" and custom_role.strip() else role
-    tone_display = custom_tone.strip() if tone == "직접 입력" and custom_tone.strip() else tone
-    format_display = (
-        custom_format.strip()
-        if output_format == "직접 입력" and custom_format.strip()
-        else output_format
-    )
+    role_display = resolve_display_value(role, custom_role)
+    tone_display = resolve_display_value(tone, custom_tone)
+    format_display = resolve_display_value(output_format, custom_format)
     mode_message = build_mode_message(role_display, tone_display, answer_length, format_display)
     return system_prompt, temperature, mode_message, is_saved
 
