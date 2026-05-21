@@ -2,7 +2,7 @@
 
 같은 질문이라도 역할, 말투, 답변 길이, 출력 형식, 답변 온도에 따라 AI 답변이 어떻게 달라지는지 실험해보는 Streamlit 앱입니다.
 
-![프롬프트 설정 화면](docs/images/prompt-settings.png)
+<img src="docs/images/prompt-settings.png" alt="프롬프트 설정 화면" width="720" style="border: 1px solid #d0d7de; border-radius: 6px;">
 
 ## 주요 기능
 
@@ -17,11 +17,11 @@
 
 ### 프롬프트 설정
 
-![프롬프트 조건 설정](docs/images/prompt-config.png)
+<img src="docs/images/prompt-config.png" alt="프롬프트 조건 설정" width="720" style="border: 1px solid #d0d7de; border-radius: 6px;">
 
 ### 답변 결과
 
-![AI 답변 결과](docs/images/answer-result.png)
+<img src="docs/images/answer-result.png" alt="AI 답변 결과" width="720" style="border: 1px solid #d0d7de; border-radius: 6px;">
 
 ## 주요 파일
 
